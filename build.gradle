@@ -1,0 +1,313 @@
+buildscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath "com.netflix.nebula:gradle-resolution-rules-plugin:2.0.0"
+    }
+}
+
+class MP implements ComponentMetadataSupplier {
+        private final RepositoryResourceAccessor repositoryResourceAccessor
+
+        @javax.inject.Inject
+        public MP(RepositoryResourceAccessor accessor) {
+            this.repositoryResourceAccessor = accessor
+        }
+        
+        void execute(ComponentMetadataSupplierDetails details) {
+            def id = details.id
+            def status = [:]
+            repositoryResourceAccessor.withResource("versions.txt") {
+                it.withReader { reader ->
+                    reader.eachLine { line ->
+                        if (line) {
+                           def (module, st) = line.split(';')
+                           status[module] = st
+                        }
+                    }
+                }
+            }
+            details.result.status = status[id.toString()]
+            details.result.statusScheme = ['integration', 'milestone', 'candidate', 'release']
+        }
+}
+
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'nebula.resolution-rules'
+
+    repositories {
+        def httpPort = project.hasProperty('httpPort') ? project.findProperty('httpPort') : '8000'
+        def repositoryBase = project.hasProperty("useHttp") ? "http://localhost:${httpPort}" : "${rootProject.projectDir}/repository"
+        ivy {
+            url "$repositoryBase/ivy"
+            if (project.findProperty('useSupplier') && project.getProperty('useSupplier')=='true') {
+               println "Using custom metadata supplier"
+               metadataSupplier(MP)
+            }
+        }
+        maven {
+            url "$repositoryBase/maven"
+        }
+        flatDir {
+            dirs rootProject.file('rules')
+        }
+    }
+
+    apply plugin: 'nebula.resolution-rules'
+
+    configurations {
+       simpletest
+    }
+
+    dependencies {
+        resolutionRules name: 'gradle-resolution-rules-0.28.0'
+        resolutionRules name: 'resolution-rules-0.12.0'
+         
+        simpletest('scott.black.hawk.down:character330:latest.release') { transitive = false }
+
+        components.all { ComponentMetadataDetails details ->
+            details.statusScheme = ['snapshot', 'integration', 'candidate', 'release']
+
+            def version = details.id.version
+            if (version =~ /(?i).+(-|\.)(CANDIDATE|RC|BETA).*/) {
+                details.status = 'candidate'
+            }
+            if (version =~ /(?i).+(-|\.)SNAPSHOT.*/) {
+                details.status = 'snapshot'
+            }
+            // Seen coming from maven
+            if (details.status == null) {
+                details.status = 'release'
+            }
+
+            if (details.status == 'snapshot' || details.status == 'integration') {
+                details.changing = true
+            }
+        }
+    }
+    
+    if (project.findProperty('refresh')) {
+        configurations.all {
+            resolutionStrategy.cacheDynamicVersionsFor 0, "seconds"
+        }    
+    }
+}
+
+int i = 0
+
+allprojects {
+    dependencies {
+        modules {
+            module('com.google.inject:guice-assistedinject') {
+                replacedBy('com.google.inject.extensions:guice-assistedinject')
+            }
+            module('com.google.inject:guice-throwingproviders') {
+                replacedBy('com.google.inject.extensions:guice-throwingproviders')
+            }
+            module('scott.black.hawk.down:json') {
+                replacedBy('org.json:json')
+            }
+        }
+    }
+
+    def gid = ['foo', 'bar', 'baz']
+    def aid = ['x', 'y', 'z', 'k', 't', 'u']
+    // manage all exclusions in one place
+    configurations.all {
+        if (it.name != 'simpletest') {
+    
+        exclude group: 'javax.servlet', module: 'servlet'
+        exclude group: 'javax.servlet', module: 'servlet-api'
+        exclude group: 'weblogic', module: 'wlfullclient'
+        exclude group: 'scott.black.hawk.down', module: 'map-title'
+        exclude group: 'scott.black.hawk.down', module: 'rentalhistory'
+        exclude group: 'scott.black.hawk.down', module: 'rentalhistory-client'
+        exclude group: 'scott.black.hawk.down', module: 'rentalhistory-common'
+        exclude group: 'org.mockito', module: 'mockito-all'
+        //exclude group: 'scott.black.hawk.down', module: 'character235'
+        exclude group: 'scott.black.hawk.down', module: 'queue'
+        exclude group: 'kafka', module: 'core'
+        exclude group: 'amazon', module: 'hadoop-core-emr'
+        exclude group: 'javax.el', module: 'el-api'
+        exclude group: 'javax.servlet.jsp.jstl', module: 'jstl-api'
+        exclude group: 'javax.servlet.jsp', module: 'jsp-api'
+        exclude group: 'org.mortbay.jetty', module: 'servlet-api'
+        exclude group: 'org.glassfish.web', module: 'jstl-impl'
+        exclude group: 'org.scribe', module: 'scribe'
+        exclude group: '', module: 'content'
+        exclude group: 'org.springframework', module: 'spring'
+        exclude group: 'org.apache.geronimo.specs', module: 'geronimo-activation_1.1_spec'
+        exclude group: 'org.apache.geronimo.specs', module: 'geronimo-annotation_1.0_spec'
+        exclude group: 'org.apache.geronimo.specs', module: 'geronimo-jaxws_2.1_spec'
+        exclude group: 'org.apache.geronimo.specs', module: 'geronimo-stax-api_1.0_spec'
+        exclude group: 'org.apache.geronimo.specs', module: 'geronimo-ws-metadata_2.0_spec'
+        exclude group: 'org.apache.cxf', module: 'cxf'
+        exclude group: 'org.apache.geronimo.bundles', module: 'json'
+        exclude group: 'com.google.guava', module: 'guava-jdk5'
+        //junit:junit-dep has become obsolete.
+        exclude group: 'junit', module: 'junit-dep'
+        //used by traceagent
+        exclude group: 'javassist', module: 'javassist'
+        exclude group: 'xerces', module: 'xerces'
+        exclude group: 'jtidy', module: 'jtidy'
+        exclude group: 'org.apache.servicemix.bundles', module: 'org.apache.servicemix.bundles.commons-csv'
+        // these are pulled in from playback-features and not needed
+        exclude group: 'scott.black.hawk.down', module: 'reloaded-commons'
+        exclude group: 'scott.black.hawk.down', module: 'mp4tools'
+
+        // use the individual jars
+        exclude group: 'cglib', module: 'cglib-nodep'
+        exclude group: 'org.ow2.asm', module: 'asm-all'
+        exclude group: 'org.ow2.asm', module: 'asm-debug-all'
+        exclude group: 'io.netty', module: 'netty-all'
+
+        // force to use io.reactivex
+        exclude group: 'com.netflix.rxjava'
+
+        // force to use io.reactivex:rxnetty-*
+        exclude group: 'io.reactivex', module: 'rxnetty'
+
+        exclude group: 'scott.black.hawk.down', module: 'cryptexclient'
+        exclude group: 'scott.black.hawk.down', module: 'crypto-common'
+        exclude group: 'com.github.fommil.netlib'
+
+        // prefer bcprov-jdk16
+        exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on'
+
+        // exclude slf4j-simple so we ensure we are using a real implementation
+        exclude group: 'org.slf4j', module: 'slf4j-simple'
+
+        // accessors-smart includes re-packaged ASM classes
+        exclude group: 'net.minidev', module: 'accessors-smart'
+        exclude group: 'net.minidev', module: 'json-smart'
+
+        i++
+        exclude group: gid[i % gid.size()], module: aid[i % (aid.size())]
+        
+        }
+    }
+}
+
+subprojects {
+    // unlocked dependencies
+    ext.dependencyReleaseStatus = System.getProperty('dependencyReleaseStatus', project.hasProperty("dependencyReleaseStatus") ? dependencyReleaseStatus : 'release')
+    apply from: "dependencies.gradle"
+}
+
+project(':api-trace-agent') {
+    dependencies {
+        //compile project(':api-trace-common')
+    }
+}
+
+project(':api') {
+    dependencies {
+        compile project(':api-service-layer-run')
+        compile project(':api-groovy-extensions')
+        compile project(':api-trace-agent')
+        compile project(':api-dependencies')
+    }
+}
+
+project(':api-test') {
+    dependencies {
+        compile project(':api-service-layer-endpoints')
+        compile project(':api-service-layer')
+    }
+}
+
+project(':api-service-layer') {
+    dependencies {
+        compile project(':api-service-layer-endpoints')
+        //compile project(':api-trace-common')
+    }
+}
+
+project(':api-service-layer-impl') {
+    dependencies {
+        compile project(':api-test')
+        compile project(':api-service-layer')
+        testCompile project(':api-service-layer-run')
+        compile project(':api-dependencies')
+        //compile project(':api-trace-common')
+    }
+}
+
+project(':api-service-layer-run') {
+    dependencies {
+        compile project(':api-service-layer-endpoints')
+        compile project(':api-dependencies')
+    }
+}
+
+project(':api-dependencies') {
+    dependencies {
+        compile project(':api-test')
+        compile project(':api-service-layer')
+        compile project(':api-platform')
+        compile project(':api-service-layer-endpoints')
+    }
+}
+
+project(':api-service-layer-endpoints') {
+    dependencies {
+        compile project(':api-platform')
+    }
+}
+
+project(':api-platform') {
+    dependencies {
+    }
+}
+
+allprojects {
+    task resolveDependencies {
+        doLast {
+            def configs = project.findProperty('confs')?project.getProperty('confs').split(','):['compile', 'testCompile', 'runtime', 'testRuntime']
+            configs.each {
+                configurations."$it".files
+            }
+        }
+    }
+}
+
+def hashing = gradle.class.classLoader.loadClass('com.google.common.hash.Hashing')
+
+task updateStatus {
+   ext.outputFile = file('repository/ivy/versions.txt')
+   ext.outputFileSignature = file('repository/ivy/versions.txt.sha1')
+   inputs.dir('repository/ivy')
+   outputs.file(ext.outputFile)
+   outputs.file(ext.outputFileSignature)
+   doLast {
+       if (ext.outputFile.exists()) { ext.outputFile.delete() }
+       ext.outputFile.withWriter { writer ->
+          file('repository/ivy').eachFile { groupFile ->
+                def group = groupFile.name
+                if (groupFile.directory) {
+                   groupFile.eachFile { moduleFile ->
+                       def module = moduleFile.name
+                       moduleFile.eachFile { versionFile ->
+                          def version = versionFile.name
+                          def versionIvy = new File(versionFile, "ivy-${version}.xml")
+                          if (versionIvy.exists()) {
+                             def p = versionIvy.text =~ /status="(.+?)"/
+                             if (p.find()) {
+                                writer.writeLine "$group:$module:$version;${p.group(1)}"
+                             }
+                          }
+                       }
+                   }
+                }
+          }
+       }
+       ext.outputFileSignature.withWriter { writer ->
+          def md = hashing.sha1()
+          writer << md.hashBytes(ext.outputFile.bytes).toString()
+       }
+   }
+}
